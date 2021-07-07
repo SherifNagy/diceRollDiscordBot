@@ -100,8 +100,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				text := strconv.Itoa(number)
 				diceResults = append(diceResults, text)
 			}
+			s.ChannelMessageSend(m.ChannelID, m.Member.Nick+" Roll: "+"["+strings.Join(diceResults, ", ")+"]"+" Results: ["+strconv.Itoa(diceSum)+"]")
 		}
 
-		s.ChannelMessageSend(m.ChannelID, m.Member.Nick+" Roll: "+"["+strings.Join(diceResults, ", ")+"]"+" Results: ["+strconv.Itoa(diceSum)+"]")
 	}
 }
