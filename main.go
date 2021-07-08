@@ -67,7 +67,6 @@ func main() {
 	// Cleanly close down the Discord session.
 	dg.Close()
 
-	// my logic
 }
 
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -79,18 +78,18 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
-
-	// If the message is "ping" reply with "Pong!"
-	fullMessage := strings.Split(m.Content, " ")
-	diceResults := []string{}
+	// check if the members has Nickname or not
 	if m.Member.Nick == "" {
 		memberName = m.Author.Username
 	} else {
 
 		memberName = m.Member.Nick
 	}
-	if fullMessage[0] == "/roll" {
-		diceCall := strings.Split(fullMessage[1], "d")
+	fullMessage := string(m.Content)
+	diceResults := []string{}
+	if strings.HasPrefix(fullMessage, "/roll ") {
+		fullText := strings.Split(fullMessage, " ")
+		diceCall := strings.Split(fullText[1], "d")
 		da, _ = strconv.Atoi(diceCall[0])
 		dt, _ = strconv.Atoi(diceCall[1])
 		dtvm := make(map[int]bool)
