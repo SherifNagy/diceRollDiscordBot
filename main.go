@@ -73,6 +73,7 @@ func main() {
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	diceSum := 0
+	memberName := ""
 	// Ignore all messages created by the bot itself
 	// This isn't required in this specific example but it's a good practice.
 	if m.Author.ID == s.State.User.ID {
@@ -82,6 +83,12 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// If the message is "ping" reply with "Pong!"
 	fullMessage := strings.Split(m.Content, " ")
 	diceResults := []string{}
+	if m.Member.Nick == "" {
+		memberName = m.Author.Username
+	} else {
+
+		memberName = m.Member.Nick
+	}
 	if fullMessage[0] == "/roll" {
 		diceCall := strings.Split(fullMessage[1], "d")
 		da, _ = strconv.Atoi(diceCall[0])
@@ -100,7 +107,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				text := strconv.Itoa(number)
 				diceResults = append(diceResults, text)
 			}
-			s.ChannelMessageSend(m.ChannelID, m.Member.Nick+" Roll: "+"["+strings.Join(diceResults, ", ")+"]"+" Results: ["+strconv.Itoa(diceSum)+"]")
+			s.ChannelMessageSend(m.ChannelID, memberName+" Roll: "+"["+strings.Join(diceResults, ", ")+"]"+" Results: ["+strconv.Itoa(diceSum)+"]")
 		}
 
 	}
