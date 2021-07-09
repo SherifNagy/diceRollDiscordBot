@@ -15,11 +15,12 @@ import (
 )
 
 var (
-	dt      int
-	da      int
-	token   string
-	diceSum int
-	dtv     [9]int = [9]int{2, 3, 4, 6, 8, 10, 12, 20, 100}
+	dt         int
+	da         int
+	token      string
+	diceSum    int
+	memberName string
+	dtv        [9]int = [9]int{2, 3, 4, 6, 8, 10, 12, 20, 100}
 )
 
 func init() {
@@ -34,6 +35,49 @@ func diceRoll(diceAmount int, dice int) []int {
 		v[i] = rand.Intn(dt-1+1) + 1
 	}
 	return v
+}
+
+func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+
+	diceSum := 0
+	memberName := ""
+	// Ignore all messages created by the bot itself
+	// This isn't required in this specific example but it's a good practice.
+	if m.Author.ID == s.State.User.ID {
+		return
+	}
+	// check if the members has Nickname or not
+	if m.Member.Nick == "" {
+		memberName = m.Author.Username
+	} else {
+
+		memberName = m.Member.Nick
+	}
+	fullMessage := strings.ToLower(string(m.Content))
+	diceResults := []string{}
+	if strings.HasPrefix(fullMessage, "/roll ") {
+		fullText := strings.Split(fullMessage, " ")
+		diceCall := strings.Split(fullText[1], "d")
+		da, _ = strconv.Atoi(diceCall[0])
+		dt, _ = strconv.Atoi(diceCall[1])
+		dtvm := make(map[int]bool)
+		for i := 0; i < len(dtv); i++ {
+			dtvm[dtv[i]] = true
+		}
+		if da > 20 {
+			return
+		} else if _, ok := dtvm[dt]; ok {
+			diceResult := diceRoll(da, dt)
+			for u := range diceResult {
+				number := diceResult[u]
+				diceSum += number
+				text := strconv.Itoa(number)
+				diceResults = append(diceResults, text)
+			}
+			s.ChannelMessageSend(m.ChannelID, memberName+" Roll: "+"["+strings.Join(diceResults, ", ")+"]"+" Results: ["+strconv.Itoa(diceSum)+"]")
+		}
+
+	}
 }
 
 func main() {
@@ -67,47 +111,4 @@ func main() {
 	// Cleanly close down the Discord session.
 	dg.Close()
 
-}
-
-func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-
-	diceSum := 0
-	memberName := ""
-	// Ignore all messages created by the bot itself
-	// This isn't required in this specific example but it's a good practice.
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-	// check if the members has Nickname or not
-	if m.Member.Nick == "" {
-		memberName = m.Author.Username
-	} else {
-
-		memberName = m.Member.Nick
-	}
-	fullMessage := string(m.Content)
-	diceResults := []string{}
-	if strings.HasPrefix(fullMessage, "/roll ") {
-		fullText := strings.Split(fullMessage, " ")
-		diceCall := strings.Split(fullText[1], "d")
-		da, _ = strconv.Atoi(diceCall[0])
-		dt, _ = strconv.Atoi(diceCall[1])
-		dtvm := make(map[int]bool)
-		for i := 0; i < len(dtv); i++ {
-			dtvm[dtv[i]] = true
-		}
-		if da > 20 {
-			return
-		} else if _, ok := dtvm[dt]; ok {
-			diceResult := diceRoll(da, dt)
-			for u := range diceResult {
-				number := diceResult[u]
-				diceSum += number
-				text := strconv.Itoa(number)
-				diceResults = append(diceResults, text)
-			}
-			s.ChannelMessageSend(m.ChannelID, memberName+" Roll: "+"["+strings.Join(diceResults, ", ")+"]"+" Results: ["+strconv.Itoa(diceSum)+"]")
-		}
-
-	}
 }
