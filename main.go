@@ -1,11 +1,14 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -15,32 +18,184 @@ import (
 )
 
 var (
-	dt         int
-	da         int
-	token      string
-	diceSum    int
-	memberName string
-	dtv        [9]int = [9]int{2, 3, 4, 6, 8, 10, 12, 20, 100}
+	token                                   string
+	dt                                      int
+	da                                      int
+	memberName                              string
+	dtv                                     [9]int = [9]int{2, 3, 4, 6, 8, 10, 12, 20, 100}
+	notationRegex                                  = regexp.MustCompile("([\\d]+)d([\\d]+)((?:[+\\-\\/*][\\d]+)+)?")
+	ErrInvalidNotation                             = errors.New("invalid notation")
+	ErrInvalidOperationString                      = errors.New("operations has to start with an operator (+-/*)")
+	ErrOnlyDigitsAreSupportedAfterOperation        = errors.New("only digits are supported after an operation")
 )
+
+type OperationType int
+
+const (
+	Unknown OperationType = iota
+	Add
+	Subtract
+	Divide
+	Multiply
+)
+const stringOperations = "+-/*"
+
+type Operation struct {
+	Type   OperationType
+	Number int
+}
+
+type DiceNotation struct {
+	diceAmount int
+	diceType   int
+	Operations []*Operation
+}
 
 func init() {
 	flag.StringVar(&token, "t", "", "Bot Token")
 	flag.Parse()
 }
 
-func diceRoll(diceAmount int, dice int) []int {
-	v := make([]int, diceAmount)
+func executeNotation(notation *DiceNotation) (int, []int) {
+	numbers := []int{}
 	rand.Seed(time.Now().UnixNano())
-	for i := 0; i < diceAmount; i++ {
-		v[i] = rand.Intn(dt-1+1) + 1
+	for i := 0; i < notation.diceAmount; i++ {
+		n := rand.Intn(notation.diceType-1+1) + 1
+		numbers = append(numbers, n)
 	}
-	return v
+
+	finalSum := 0
+	for _, num := range numbers {
+		finalSum += num
+	}
+
+	for _, op := range notation.Operations {
+		switch op.Type {
+		case Add:
+			finalSum += op.Number
+			break
+		case Subtract:
+			finalSum -= op.Number
+			break
+		case Multiply:
+			finalSum *= op.Number
+			break
+		case Divide:
+			finalSum /= op.Number
+			break
+		}
+	}
+
+	return finalSum, numbers
+}
+
+func parseDiceNotation(notation string) (*DiceNotation, error) {
+	if !notationRegex.MatchString(notation) {
+		return nil, ErrInvalidNotation
+	}
+
+	diceNotation := DiceNotation{
+		Operations: []*Operation{},
+	}
+
+	parsedNotation := notationRegex.FindStringSubmatch(notation)
+	if len(parsedNotation) < 3 {
+		return nil, ErrInvalidNotation
+	}
+
+	dices, err := strconv.Atoi(parsedNotation[1])
+	if err != nil {
+		return nil, ErrInvalidNotation
+	}
+	diceNotation.diceAmount = dices
+
+	sides, err := strconv.Atoi(parsedNotation[2])
+	if err != nil {
+		return nil, ErrInvalidNotation
+	}
+	diceNotation.diceType = sides
+
+	if len(parsedNotation) > 3 {
+		operationsStr := parsedNotation[3]
+		if strings.TrimSpace(operationsStr) == "" {
+			return &diceNotation, nil
+		}
+
+		firstChar := string(operationsStr[0])
+		if !strings.Contains(stringOperations, firstChar) {
+			return nil, ErrInvalidOperationString
+		}
+
+		operation := &Operation{
+			Type: Unknown,
+		}
+		var tempIntStr string
+
+		for _, char := range operationsStr {
+			switch string(char) {
+			case "*",
+				"/",
+				"-",
+				"+":
+				if operation.Type != Unknown {
+					runeInt, err := strconv.Atoi(tempIntStr)
+					if err != nil {
+						return nil, ErrOnlyDigitsAreSupportedAfterOperation
+					}
+
+					operation.Number = runeInt
+					diceNotation.Operations = append(diceNotation.Operations, operation)
+
+					operation = &Operation{
+						Type: Unknown,
+					}
+					tempIntStr = ""
+				}
+			}
+			switch string(char) {
+			case "+":
+				operation.Type = Add
+				break
+			case "-":
+				operation.Type = Subtract
+				break
+			case "/":
+				operation.Type = Divide
+				break
+			case "*":
+				operation.Type = Multiply
+				break
+			default:
+				tempIntStr += string(char)
+				break
+			}
+		}
+
+		if operation.Type != Unknown {
+			runeInt, err := strconv.Atoi(tempIntStr)
+			if err != nil {
+				return nil, ErrOnlyDigitsAreSupportedAfterOperation
+			}
+
+			operation.Number = runeInt
+			diceNotation.Operations = append(diceNotation.Operations, operation)
+
+			operation = &Operation{
+				Type: Unknown,
+			}
+			tempIntStr = ""
+		}
+	}
+
+	return &diceNotation, nil
 }
 
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
-	diceSum := 0
 	memberName := ""
+	fullMessage := strings.ToLower(string(m.Content))
+	diceArray := []string{}
+
 	// Ignore all messages created by the bot itself
 	// This isn't required in this specific example but it's a good practice.
 	if m.Author.ID == s.State.User.ID {
@@ -53,30 +208,46 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		memberName = m.Member.Nick
 	}
-	fullMessage := strings.ToLower(string(m.Content))
-	diceResults := []string{}
+	// main logic to initiate the bot
 	if strings.HasPrefix(fullMessage, "/roll ") {
 		fullText := strings.Split(fullMessage, " ")
 		diceCall := strings.Split(fullText[1], "d")
 		da, _ = strconv.Atoi(diceCall[0])
-		dt, _ = strconv.Atoi(diceCall[1])
+		if da > 20 {
+			return
+		}
+		if strings.ContainsAny(diceCall[1], "/-*+") {
+			for _, stringOperation := range stringOperations {
+				if strings.ContainsAny(diceCall[1], "dD") {
+					break
+				}
+				dt, _ := strconv.Atoi(strings.Split(diceCall[1], string(stringOperation))[0])
+				// need to get rid of that
+				fmt.Println(dt)
+			}
+
+		} else {
+			dt, _ = strconv.Atoi(diceCall[1])
+
+		}
 		dtvm := make(map[int]bool)
 		for i := 0; i < len(dtv); i++ {
 			dtvm[dtv[i]] = true
 		}
-		if da > 20 {
-			return
-		} else if _, ok := dtvm[dt]; ok {
-			diceResult := diceRoll(da, dt)
-			for u := range diceResult {
-				number := diceResult[u]
-				diceSum += number
-				text := strconv.Itoa(number)
-				diceResults = append(diceResults, text)
+		if _, ok := dtvm[dt]; ok {
+			parsedNotation, err := parseDiceNotation(fullText[1])
+			if err != nil {
+				log.Fatal(err)
 			}
-			s.ChannelMessageSend(m.ChannelID, memberName+" Roll: "+"["+strings.Join(diceResults, ", ")+"]"+" Results: ["+strconv.Itoa(diceSum)+"]")
-		}
 
+			finalSum, diceResults := executeNotation(parsedNotation)
+			for u := range diceResults {
+				number := diceResults[u]
+				text := strconv.Itoa(number)
+				diceArray = append(diceArray, text)
+			}
+			s.ChannelMessageSend(m.ChannelID, memberName+" Roll: "+"["+strings.Join(diceArray, ", ")+"]"+" Results: ["+strconv.Itoa(finalSum)+"]")
+		}
 	}
 }
 
